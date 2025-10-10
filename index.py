@@ -185,5 +185,5 @@ def menu_principal():
             print("Opção inválida. Digite um número de 0 a 5.")
 
 # Executa o programa
-if __name__ == "__main__": # <-- CORRIGIDO
+if __name__ == "__main__":
     menu_principal()
