@@ -2,6 +2,9 @@ import matplotlib.pyplot as plt
 import sqlite3
 import csv
 from datetime import datetime
+import os 
+
+CSV_FOLDER = 'csv' 
 
 def conectar_bd():
     conn = sqlite3.connect('meu_estoque.db')
@@ -218,16 +221,16 @@ def mostrar_grafico():
 
     plt.show()
 
-
 def importar_produtos_csv(nome_arquivo='produtos.csv'):
     conn = conectar_bd()
     cursor = conn.cursor()
     
     produtos_importados = 0
     produtos_ignorados = 0
+    caminho_arquivo = os.path.join(CSV_FOLDER, nome_arquivo)
 
     try:
-        with open(nome_arquivo, mode='r', encoding='utf-8') as file:
+        with open(caminho_arquivo, mode='r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             
             for row in reader:
@@ -255,13 +258,144 @@ def importar_produtos_csv(nome_arquivo='produtos.csv'):
 
         conn.commit()
         print("\n" + "="*40)
-        print(f"IMPORTAÇÃO CONCLUÍDA:")
+        print(f"IMPORTAÇÃO DE PRODUTOS CONCLUÍDA:")
         print(f"-> {produtos_importados} produtos importados com sucesso.")
         print(f"-> {produtos_ignorados} produtos ignorados (erro de valor ou duplicidade).")
         print("="*40)
         
     except FileNotFoundError:
-        print(f"ERRO: Arquivo '{nome_arquivo}' não encontrado. Crie o '{nome_arquivo}' na pasta do projeto.")
+        print(f"ERRO: Arquivo '{caminho_arquivo}' não encontrado. Mova o arquivo para a pasta '{CSV_FOLDER}'.")
+    finally:
+        conn.close()
+
+def remover_produtos_csv(nome_arquivo='produtos_remover.csv'):
+    print(f"\n--- REMOÇÃO EM MASSA DE PRODUTOS VIA {nome_arquivo} ---")
+    
+    conn = conectar_bd()
+    cursor = conn.cursor()
+    
+    produtos_removidos = 0
+    produtos_nao_encontrados = 0
+    caminho_arquivo = os.path.join(CSV_FOLDER, nome_arquivo)
+
+    try:
+        with open(caminho_arquivo, mode='r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            
+            for row in reader:
+                nome = row['nome'].strip().lower()
+                
+                try:
+                    cursor.execute("DELETE FROM estoque WHERE nome = ?", (nome,))
+                    
+                    if cursor.rowcount > 0:
+                        produtos_removidos += 1
+                    else:
+                        produtos_nao_encontrados += 1
+                        print(f"AVISO: Produto '{nome.capitalize()}' não encontrado no estoque.")
+                        
+                except Exception as e:
+                    print(f"ERRO ao remover '{nome.capitalize()}': {e}")
+
+        conn.commit()
+        print("\n" + "="*40)
+        print(f"REMOÇÃO EM MASSA CONCLUÍDA:")
+        print(f"-> {produtos_removidos} produtos removidos com sucesso.")
+        print(f"-> {produtos_nao_encontrados} produtos não encontrados/ignorados.")
+        print("="*40)
+        
+    except FileNotFoundError:
+        print(f"ERRO: Arquivo '{caminho_arquivo}' não encontrado. Mova o arquivo para a pasta '{CSV_FOLDER}'.")
+    finally:
+        conn.close()
+
+def importar_funcionarios_csv(nome_arquivo='funcionarios.csv'):
+    conn = conectar_bd()
+    cursor = conn.cursor()
+    
+    funcionarios_importados = 0
+    funcionarios_ignorados = 0
+    caminho_arquivo = os.path.join(CSV_FOLDER, nome_arquivo)
+
+    try:
+        with open(caminho_arquivo, mode='r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            
+            for row in reader:
+                nome = row['nome'].strip().title()
+                cargo = row['cargo'].strip().title()
+                
+                try:
+                    salario = float(row['salario'].replace(',', '.'))
+                    data_contratacao = row['data_contratacao'].strip()
+                    datetime.strptime(data_contratacao, '%Y-%m-%d')
+                    
+                except ValueError:
+                    print(f"AVISO: Linha com erro de valor/data ignorada (Funcionário: {nome}).")
+                    funcionarios_ignorados += 1
+                    continue
+                
+                try:
+                    cursor.execute("""
+                        INSERT INTO funcionarios (nome, cargo, salario, data_contratacao) 
+                        VALUES (?, ?, ?, ?)
+                    """, (nome, cargo, salario, data_contratacao))
+                    funcionarios_importados += 1
+                    
+                except sqlite3.IntegrityError:
+                    print(f"AVISO: Funcionário '{nome}' já existe e foi ignorado.")
+                    funcionarios_ignorados += 1
+
+        conn.commit()
+        print("\n" + "="*40)
+        print(f"IMPORTAÇÃO DE FUNCIONÁRIOS CONCLUÍDA:")
+        print(f"-> {funcionarios_importados} funcionários importados com sucesso.")
+        print(f"-> {funcionarios_ignorados} funcionários ignorados (erro de valor ou duplicidade).")
+        print("="*40)
+        
+    except FileNotFoundError:
+        print(f"ERRO: Arquivo '{caminho_arquivo}' não encontrado. Mova o arquivo para a pasta '{CSV_FOLDER}'.")
+    finally:
+        conn.close()
+
+def remover_funcionarios_csv(nome_arquivo='funcionarios_remover.csv'):
+    print(f"\n--- REMOÇÃO EM MASSA DE FUNCIONÁRIOS VIA {nome_arquivo} ---")
+    
+    conn = conectar_bd()
+    cursor = conn.cursor()
+    
+    funcionarios_removidos = 0
+    funcionarios_nao_encontrados = 0
+    caminho_arquivo = os.path.join(CSV_FOLDER, nome_arquivo)
+
+    try:
+        with open(caminho_arquivo, mode='r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            
+            for row in reader:
+                nome = row['nome'].strip().title() 
+                
+                try:
+                    cursor.execute("DELETE FROM funcionarios WHERE nome = ?", (nome,))
+                    
+                    if cursor.rowcount > 0:
+                        funcionarios_removidos += 1
+                    else:
+                        funcionarios_nao_encontrados += 1
+                        print(f"AVISO: Funcionário '{nome}' não encontrado no banco de dados.")
+                        
+                except Exception as e:
+                    print(f"ERRO ao remover funcionário '{nome}': {e}")
+
+        conn.commit()
+        print("\n" + "="*40)
+        print(f"REMOÇÃO DE FUNCIONÁRIOS CONCLUÍDA:")
+        print(f"-> {funcionarios_removidos} funcionários removidos com sucesso.")
+        print(f"-> {funcionarios_nao_encontrados} funcionários não encontrados/ignorados.")
+        print("="*40)
+        
+    except FileNotFoundError:
+        print(f"ERRO: Arquivo '{caminho_arquivo}' não encontrado. Crie o arquivo e mova-o para a pasta '{CSV_FOLDER}'.")
     finally:
         conn.close()
 
@@ -414,10 +548,12 @@ def menu_funcionarios():
         print("2 - Listar todos os funcionários")
         print("3 - Buscar funcionário por nome")
         print("4 - Calcular média salarial")
-        print("5 - Remover funcionário")
+        print("5 - Remover funcionário (por ID)")
+        print("6 - Importar funcionários de CSV")
+        print("7 - Remover funcionários via CSV")
         print("0 - Voltar ao menu principal")
 
-        escolha = input("Escolha uma opção (0 a 5): ").strip()
+        escolha = input("Escolha uma opção (0 a 7): ").strip()
 
         if escolha == "0":
             break
@@ -431,8 +567,12 @@ def menu_funcionarios():
             calcular_media_salarial()
         elif escolha == "5":
             remover_funcionario()
+        elif escolha == "6":
+            importar_funcionarios_csv()
+        elif escolha == "7": 
+            remover_funcionarios_csv()
         else:
-            print("Opção inválida. Digite um número de 0 a 5.")
+            print("Opção inválida. Digite um número de 0 a 7.")
 
 def menu_principal():
     while True:
@@ -445,10 +585,11 @@ def menu_principal():
         print("4 - Visualizar estoque")
         print("5 - Mostrar gráfico de valores")
         print("6 - Importar produtos de CSV")
-        print("7 - Gerenciamento de Funcionários")
+        print("7 - Remover produtos via CSV")
+        print("8 - Gerenciamento de Funcionários")
         print("0 - Sair do sistema")
 
-        escolha = input("Escolha uma opção (0 a 7): ").strip()
+        escolha = input("Escolha uma opção (0 a 8): ").strip()
 
         if escolha == "0":
             print("Saindo do sistema. Até logo!")
@@ -466,10 +607,16 @@ def menu_principal():
         elif escolha == "6":
             importar_produtos_csv()
         elif escolha == "7":
+            remover_produtos_csv()
+        elif escolha == "8":
             menu_funcionarios()
         else:
-            print("Opção inválida. Digite um número de 0 a 7.")
+            print("Opção inválida. Digite um número de 0 a 8.")
 
 if __name__ == "__main__":
+    if not os.path.exists(CSV_FOLDER):
+        os.makedirs(CSV_FOLDER)
+        print(f"Pasta de CSVs '{CSV_FOLDER}' criada com sucesso. Por favor, mova seus arquivos CSV para dentro dela.")
+        
     criar_tabelas() 
     menu_principal()
