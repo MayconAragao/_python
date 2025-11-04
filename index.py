@@ -3,8 +3,12 @@ import sqlite3
 import csv
 from datetime import datetime
 import os 
+import numpy as np
+# O matplotlib.cm não é mais estritamente necessário, mas mantemos os imports básicos
 
 CSV_FOLDER = 'csv' 
+
+# --- FUNÇÕES BÁSICAS E CSV (Mantidas) ---
 
 def conectar_bd():
     conn = sqlite3.connect('meu_estoque.db')
@@ -14,7 +18,6 @@ def conectar_bd():
 def criar_tabelas():
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS estoque (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,7 +27,6 @@ def criar_tabelas():
             valor_unitario REAL
         );
     """)
-    
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS funcionarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,46 +36,34 @@ def criar_tabelas():
             data_contratacao TEXT
         );
     """)
-    
     conn.commit()
     conn.close()
 
 def cadastrar_produto():
     nome = input("Nome do produto: ").strip().lower()
-    
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT nome FROM estoque WHERE nome = ?", (nome,))
     if cursor.fetchone():
         print("Produto já cadastrado. Use a opção 2 para adicionar.")
         conn.close()
         return
-
     try:
         qtd = float(input("Quantidade inicial: "))
         if qtd < 0:
             print("Erro: A quantidade deve ser um número positivo.")
             conn.close()
             return
-
         unidade = input("Unidade de medida (ex: KG, UN, LT, M): ").strip().upper()
-
         valor_str = input("Valor unitário (R$ por unidade): ").replace(',', '.')
         valor = float(valor_str)
         if valor < 0:
             print("Erro: O valor deve ser um número positivo.")
             conn.close()
             return
-            
-        cursor.execute("""
-            INSERT INTO estoque (nome, quantidade, unidade, valor_unitario) 
-            VALUES (?, ?, ?, ?)
-        """, (nome, qtd, unidade, valor))
-        
+        cursor.execute("INSERT INTO estoque (nome, quantidade, unidade, valor_unitario) VALUES (?, ?, ?, ?)", (nome, qtd, unidade, valor))
         conn.commit()
         print(f"Produto '{nome.capitalize()}' cadastrado com sucesso no DB!")
-        
     except ValueError:
         print("Erro: Digite valores numéricos válidos para quantidade e valor.")
     except sqlite3.IntegrityError:
@@ -81,16 +71,12 @@ def cadastrar_produto():
     finally:
         conn.close()
 
-
 def adicionar_quantidade():
     nome = input("Nome do produto: ").strip().lower()
-    
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT quantidade, unidade FROM estoque WHERE nome = ?", (nome,))
     produto = cursor.fetchone()
-    
     if produto:
         try:
             unidade = produto['unidade']
@@ -99,13 +85,8 @@ def adicionar_quantidade():
                 print("Erro: Digite uma quantidade positiva para adicionar.")
                 conn.close()
                 return
-
             nova_qtd = produto['quantidade'] + qtd_adicionar
-            
-            cursor.execute("""
-                UPDATE estoque SET quantidade = ? WHERE nome = ?
-            """, (nova_qtd, nome))
-            
+            cursor.execute("UPDATE estoque SET quantidade = ? WHERE nome = ?", (nova_qtd, nome))
             conn.commit()
             print(f"{qtd_adicionar:.2f} {unidade} adicionadas ao produto '{nome.capitalize()}'.")
         except ValueError:
@@ -116,35 +97,28 @@ def adicionar_quantidade():
         print("Produto não encontrado. Cadastre primeiro (Opção 1).")
         conn.close()
 
-
 def baixar_produto():
     nome = input("Nome do produto: ").strip().lower()
-
     conn = conectar_bd()
     cursor = conn.cursor()
     cursor.execute("SELECT quantidade, unidade FROM estoque WHERE nome = ?", (nome,))
     produto = cursor.fetchone()
-
     if produto:
         try:
             unidade = produto['unidade']
             qtd_atual = produto['quantidade']
             qtd_baixar = float(input(f"Quantidade a baixar ({unidade}): "))
-            
             if qtd_baixar <= 0:
                 print("Erro: Digite uma quantidade positiva para baixar.")
                 return
-            
             if qtd_baixar <= qtd_atual:
                 nova_qtd = qtd_atual - qtd_baixar
-                
                 if nova_qtd < 0.001: 
                     cursor.execute("DELETE FROM estoque WHERE nome = ?", (nome,))
                     print(f"Produto '{nome.capitalize()}' removido do estoque (zerado).")
                 else:
                     cursor.execute("UPDATE estoque SET quantidade = ? WHERE nome = ?", (nova_qtd, nome))
                     print(f"{qtd_baixar:.2f} {unidade} baixadas do produto '{nome.capitalize()}'.")
-                    
                 conn.commit()
             else:
                 print(f"Erro: Quantidade insuficiente. Máximo disponível: {qtd_atual:.2f} {unidade}.")
@@ -156,42 +130,169 @@ def baixar_produto():
         print("Produto não encontrado.")
         conn.close()
 
-
 def visualizar_estoque():
     conn = conectar_bd()
     cursor = conn.cursor()
     cursor.execute("SELECT nome, quantidade, unidade, valor_unitario FROM estoque ORDER BY nome")
     produtos = cursor.fetchall()
     conn.close()
-    
     if not produtos:
         print("Estoque vazio.")
         return
-
     print("\n--- ESTOQUE ATUAL ---")
     total_geral = 0
     print(f"{'Item':<4} | {'Produto':<15} | {'Qtd':<8} | {'Un.':<4} | {'Val. Unit.':<12} | {'Val. Total':<12}")
     print("-" * 62)
-
     item_num = 1
     for produto in produtos:
         nome = produto['nome']
         qtd = produto['quantidade']
         unidade = produto['unidade']
         valor_unit = produto['valor_unitario']
-        
         total = qtd * valor_unit
         total_geral += total
-        
         print(f"{item_num:<4} | {nome.capitalize():<15} | {qtd:8.2f} | {unidade:<4} | R$ {valor_unit:8.2f} | R$ {total:8.2f}")
         item_num += 1
-    
     print("-" * 62)
     print(f"{'VALOR TOTAL GERAL DO ESTOQUE':<49} R$ {total_geral:8.2f}")
     print("-" * 62)
 
+# --- FUNÇÕES GRÁFICAS ---
 
-def mostrar_grafico():
+def mostrar_grafico_tendencia_diaria():
+    nome_produto = input("Digite o NOME do produto para ver a tendência diária: ").strip().lower()
+    
+    conn = conectar_bd()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nome, unidade FROM estoque WHERE nome = ?", (nome_produto,))
+    produto = cursor.fetchone()
+    conn.close()
+    
+    if not produto:
+        print(f"Produto '{nome_produto.capitalize()}' não encontrado no estoque.")
+        return
+
+    dias = [1, 2, 3, 4, 5, 6, 7]
+    estoque_simulado = [100, 95, 110, 105, 120, 115, 130]
+    unidade = produto['unidade']
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(dias, estoque_simulado, 
+             marker='o',       
+             linestyle='-',    
+             color='orange',   
+             linewidth=2.5)
+    
+    for i, estoque in enumerate(estoque_simulado):
+        plt.text(dias[i], estoque + 1.5, str(estoque), ha='center', fontsize=9)
+
+    plt.title(f'1. Tendência de Estoque Diário - {nome_produto.capitalize()}', fontsize=16)
+    plt.xlabel('Dia da Semana (1 a 7)', fontsize=12)
+    plt.ylabel(f'Quantidade em Estoque ({unidade})', fontsize=12)
+    plt.xticks(dias) 
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+    plt.close('all')
+
+
+def mostrar_grafico_comparacao_produtos():
+    conn = conectar_bd()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nome, quantidade, unidade FROM estoque ORDER BY quantidade DESC LIMIT 10")
+    produtos = cursor.fetchall()
+    conn.close()
+    
+    if not produtos:
+        print("Estoque vazio. Nada para comparar.")
+        return
+
+    nomes = [p['nome'].capitalize() for p in produtos]
+    quantidades = [p['quantidade'] for p in produtos]
+    
+    unidade_geral = produtos[0]['unidade'] if produtos and len(set(p['unidade'] for p in produtos)) == 1 else "Diversas"
+
+    plt.figure(figsize=(14, 7))
+    barras = plt.bar(nomes, quantidades, color='skyblue')
+    
+    plt.title('2. Comparação de Quantidades em Estoque (Top 10 Produtos)', fontsize=16)
+    plt.xlabel('Produto', fontsize=12)
+    plt.ylabel(f'Quantidade ({unidade_geral})', fontsize=12)
+    
+    plt.xticks(rotation=45, ha='right') 
+    plt.grid(axis='y', linestyle='--', alpha=0.6)
+    plt.tight_layout()
+
+    for bar, quantidade in zip(barras, quantidades):
+        plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                 f'{quantidade:.0f}', ha='center', va='bottom', fontsize=10, weight='bold')
+
+    plt.show()
+    plt.close('all')
+
+
+def obter_dados_por_categoria():
+    conn = conectar_bd()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nome, quantidade, valor_unitario FROM estoque")
+    produtos = cursor.fetchall()
+    conn.close()
+
+    categorias_valores = {
+        'Camisas/Blusas/Polos': 0,
+        'Calças/Saias/Shorts': 0,
+        'Casacos/Jaquetas/Moletons': 0,
+        'Calçados/Tênis': 0,
+        'Acessórios/Outros': 0
+    }
+
+    if not produtos:
+        return None, None
+
+    for p in produtos:
+        valor = p['quantidade'] * p['valor_unitario']
+        nome = p['nome'].lower()
+        
+        if 'camiseta' in nome or 'blusa' in nome or 'regata' in nome or 'polo' in nome or 'camisa_social' in nome:
+            categorias_valores['Camisas/Blusas/Polos'] += valor
+        elif 'calca' in nome or 'saia' in nome or 'shorts' in nome or 'bermuda' in nome:
+            categorias_valores['Calças/Saias/Shorts'] += valor
+        elif 'moletom' in nome or 'jaqueta' in nome or 'casaco' in nome or 'casaco_trench_coat' in nome:
+            categorias_valores['Casacos/Jaquetas/Moletons'] += valor
+        elif 'tenis' in nome or 'sandalia' in nome or 'sapatilha' in nome or 'chinelo' in nome or 'sapato_social' in nome or 'pantufa' in nome:
+            categorias_valores['Calçados/Tênis'] += valor
+        else:
+            categorias_valores['Acessórios/Outros'] += valor
+
+    labels = [cat for cat, val in categorias_valores.items() if val > 0]
+    values = [val for val in categorias_valores.values() if val > 0]
+    
+    return labels, values
+
+def mostrar_grafico_proporcao_categorias():
+    labels, sizes = obter_dados_por_categoria()
+    
+    if not labels:
+        print("Estoque vazio ou sem valor para categorizar.")
+        return
+
+    plt.figure(figsize=(10, 8))
+    
+    plt.pie(sizes, 
+            labels=labels, 
+            autopct='%1.1f%%', 
+            startangle=90, 
+            wedgeprops={'edgecolor': 'black', 'linewidth': 0.5},
+            textprops={'fontsize': 10})
+    
+    plt.title('3. Proporção do Valor Total do Estoque por Categoria', fontsize=16)
+    plt.axis('equal') 
+    plt.tight_layout()
+    plt.show()
+    plt.close('all')
+
+
+def mostrar_grafico_preco_vs_quantidade():
     conn = conectar_bd()
     cursor = conn.cursor()
     cursor.execute("SELECT nome, quantidade, valor_unitario FROM estoque")
@@ -199,32 +300,41 @@ def mostrar_grafico():
     conn.close()
     
     if not produtos:
-        print("Estoque vazio. Nada para mostrar.")
+        print("Estoque vazio. Nada para analisar.")
         return
 
+    precos = [p['valor_unitario'] for p in produtos]
+    quantidades = [p['quantidade'] for p in produtos]
     nomes = [p['nome'].capitalize() for p in produtos]
-    valores_totais = [p['quantidade'] * p['valor_unitario'] for p in produtos]
     
-    plt.figure(figsize=(12, 6))
-    barras = plt.bar(nomes, valores_totais, color=['#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0'])
+    plt.figure(figsize=(12, 8))
     
-    plt.title('Valor Total em Estoque por Produto', fontsize=16)
-    plt.xlabel('Produto', fontsize=12)
-    plt.ylabel('Valor Total (R$)', fontsize=12)
-    plt.xticks(rotation=45, ha='right') 
-    plt.grid(axis='y', linestyle='--', alpha=0.6)
+    plt.scatter(precos, quantidades, 
+                s=70,  
+                alpha=0.7, 
+                color='teal',
+                edgecolors='w') 
+
+    plt.title('4. Relação: Preço Unitário vs. Quantidade em Estoque', fontsize=16)
+    plt.xlabel('Preço Unitário (R$)', fontsize=12)
+    plt.ylabel('Quantidade em Estoque', fontsize=12)
+    
+    plt.grid(True, linestyle=':', alpha=0.5)
+    
+    for i, nome in enumerate(nomes):
+        if quantidades[i] > 100 or precos[i] > 150: 
+            plt.annotate(nome, (precos[i], quantidades[i]), textcoords="offset points", xytext=(5, 5), ha='center', fontsize=8)
+
     plt.tight_layout()
-
-    for bar, valor in zip(barras, valores_totais):
-        plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                 f'R$ {valor:.2f}', ha='center', va='bottom', fontsize=10, weight='bold')
-
     plt.show()
+    plt.close('all')
+
+
+# --- FUNÇÕES CSV (Mantidas) ---
 
 def importar_produtos_csv(nome_arquivo='produtos.csv'):
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     produtos_importados = 0
     produtos_ignorados = 0
     caminho_arquivo = os.path.join(CSV_FOLDER, nome_arquivo)
@@ -232,10 +342,8 @@ def importar_produtos_csv(nome_arquivo='produtos.csv'):
     try:
         with open(caminho_arquivo, mode='r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
-            
             for row in reader:
                 nome = row['nome'].strip().lower()
-                
                 try:
                     qtd = float(row['quantidade'].replace(',', '.'))
                     valor = float(row['valor_unitario'].replace(',', '.'))
@@ -244,14 +352,9 @@ def importar_produtos_csv(nome_arquivo='produtos.csv'):
                     print(f"AVISO: Linha com erro de valor numérico ignorada (Produto: {nome.capitalize()}).")
                     produtos_ignorados += 1
                     continue
-                
                 try:
-                    cursor.execute("""
-                        INSERT INTO estoque (nome, quantidade, unidade, valor_unitario) 
-                        VALUES (?, ?, ?, ?)
-                    """, (nome, qtd, unidade, valor))
+                    cursor.execute("INSERT INTO estoque (nome, quantidade, unidade, valor_unitario) VALUES (?, ?, ?, ?)", (nome, qtd, unidade, valor))
                     produtos_importados += 1
-                    
                 except sqlite3.IntegrityError:
                     print(f"AVISO: Produto '{nome.capitalize()}' já existe e foi ignorado.")
                     produtos_ignorados += 1
@@ -270,10 +373,8 @@ def importar_produtos_csv(nome_arquivo='produtos.csv'):
 
 def remover_produtos_csv(nome_arquivo='produtos_remover.csv'):
     print(f"\n--- REMOÇÃO EM MASSA DE PRODUTOS VIA {nome_arquivo} ---")
-    
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     produtos_removidos = 0
     produtos_nao_encontrados = 0
     caminho_arquivo = os.path.join(CSV_FOLDER, nome_arquivo)
@@ -281,19 +382,15 @@ def remover_produtos_csv(nome_arquivo='produtos_remover.csv'):
     try:
         with open(caminho_arquivo, mode='r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
-            
             for row in reader:
                 nome = row['nome'].strip().lower()
-                
                 try:
                     cursor.execute("DELETE FROM estoque WHERE nome = ?", (nome,))
-                    
                     if cursor.rowcount > 0:
                         produtos_removidos += 1
                     else:
                         produtos_nao_encontrados += 1
                         print(f"AVISO: Produto '{nome.capitalize()}' não encontrado no estoque.")
-                        
                 except Exception as e:
                     print(f"ERRO ao remover '{nome.capitalize()}': {e}")
 
@@ -312,7 +409,6 @@ def remover_produtos_csv(nome_arquivo='produtos_remover.csv'):
 def importar_funcionarios_csv(nome_arquivo='funcionarios.csv'):
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     funcionarios_importados = 0
     funcionarios_ignorados = 0
     caminho_arquivo = os.path.join(CSV_FOLDER, nome_arquivo)
@@ -320,28 +416,20 @@ def importar_funcionarios_csv(nome_arquivo='funcionarios.csv'):
     try:
         with open(caminho_arquivo, mode='r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
-            
             for row in reader:
                 nome = row['nome'].strip().title()
                 cargo = row['cargo'].strip().title()
-                
                 try:
                     salario = float(row['salario'].replace(',', '.'))
                     data_contratacao = row['data_contratacao'].strip()
                     datetime.strptime(data_contratacao, '%Y-%m-%d')
-                    
                 except ValueError:
                     print(f"AVISO: Linha com erro de valor/data ignorada (Funcionário: {nome}).")
                     funcionarios_ignorados += 1
                     continue
-                
                 try:
-                    cursor.execute("""
-                        INSERT INTO funcionarios (nome, cargo, salario, data_contratacao) 
-                        VALUES (?, ?, ?, ?)
-                    """, (nome, cargo, salario, data_contratacao))
+                    cursor.execute("INSERT INTO funcionarios (nome, cargo, salario, data_contratacao) VALUES (?, ?, ?, ?)", (nome, cargo, salario, data_contratacao))
                     funcionarios_importados += 1
-                    
                 except sqlite3.IntegrityError:
                     print(f"AVISO: Funcionário '{nome}' já existe e foi ignorado.")
                     funcionarios_ignorados += 1
@@ -360,10 +448,8 @@ def importar_funcionarios_csv(nome_arquivo='funcionarios.csv'):
 
 def remover_funcionarios_csv(nome_arquivo='funcionarios_remover.csv'):
     print(f"\n--- REMOÇÃO EM MASSA DE FUNCIONÁRIOS VIA {nome_arquivo} ---")
-    
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     funcionarios_removidos = 0
     funcionarios_nao_encontrados = 0
     caminho_arquivo = os.path.join(CSV_FOLDER, nome_arquivo)
@@ -371,19 +457,15 @@ def remover_funcionarios_csv(nome_arquivo='funcionarios_remover.csv'):
     try:
         with open(caminho_arquivo, mode='r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
-            
             for row in reader:
                 nome = row['nome'].strip().title() 
-                
                 try:
                     cursor.execute("DELETE FROM funcionarios WHERE nome = ?", (nome,))
-                    
                     if cursor.rowcount > 0:
                         funcionarios_removidos += 1
                     else:
                         funcionarios_nao_encontrados += 1
                         print(f"AVISO: Funcionário '{nome}' não encontrado no banco de dados.")
-                        
                 except Exception as e:
                     print(f"ERRO ao remover funcionário '{nome}': {e}")
 
@@ -399,13 +481,13 @@ def remover_funcionarios_csv(nome_arquivo='funcionarios_remover.csv'):
     finally:
         conn.close()
 
+# --- FUNÇÕES DE PESSOAL ---
+
 def cadastrar_funcionario():
     nome = input("Nome do funcionário: ").strip().title()
     cargo = input("Cargo: ").strip().title()
-    
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     try:
         salario_str = input("Salário (R$): ").replace(',', '.')
         salario = float(salario_str)
@@ -413,18 +495,11 @@ def cadastrar_funcionario():
             print("Erro: O salário deve ser um número positivo.")
             conn.close()
             return
-            
         data_input = input(f"Data de contratação (AAAA-MM-DD, vazio para hoje): ").strip()
         data_contratacao = data_input if data_input else datetime.now().strftime('%Y-%m-%d')
-        
-        cursor.execute("""
-            INSERT INTO funcionarios (nome, cargo, salario, data_contratacao) 
-            VALUES (?, ?, ?, ?)
-        """, (nome, cargo, salario, data_contratacao))
-        
+        cursor.execute("INSERT INTO funcionarios (nome, cargo, salario, data_contratacao) VALUES (?, ?, ?, ?)", (nome, cargo, salario, data_contratacao))
         conn.commit()
         print(f"Funcionário '{nome}' ({cargo}) cadastrado com sucesso!")
-        
     except ValueError:
         print("Erro: Digite um valor numérico válido para o salário.")
     finally:
@@ -436,65 +511,45 @@ def listar_funcionarios():
     cursor.execute("SELECT id, nome, cargo, salario, data_contratacao FROM funcionarios ORDER BY nome")
     funcionarios = cursor.fetchall()
     conn.close()
-    
     if not funcionarios:
         print("Nenhum funcionário cadastrado.")
         return
-
     print("\n--- LISTA DE FUNCIONÁRIOS ---")
     print(f"{'ID':<4} | {'Nome':<20} | {'Cargo':<15} | {'Salário':<12} | {'Contratação':<12}")
     print("-" * 68)
-
     for func in funcionarios:
         salario_formatado = f"R$ {func['salario']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
-        
         print(f"{func['id']:<4} | {func['nome']:<20} | {func['cargo']:<15} | {salario_formatado:<12} | {func['data_contratacao']:<12}")
-    
     print("-" * 68)
 
 def buscar_funcionario_por_nome():
     busca = input("Digite o nome ou parte do nome do funcionário: ").strip().lower()
-    
     conn = conectar_bd()
     cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT id, nome, cargo, salario, data_contratacao FROM funcionarios 
-        WHERE nome LIKE ? 
-        ORDER BY nome
-    """, (f'%{busca}%',))
-    
+    cursor.execute("SELECT id, nome, cargo, salario, data_contratacao FROM funcionarios WHERE nome LIKE ? ORDER BY nome", (f'%{busca}%',))
     funcionarios = cursor.fetchall()
     conn.close()
-    
     if not funcionarios:
         print(f"Nenhum funcionário encontrado com o nome ou parte do nome '{busca}'.")
         return
-
     print(f"\n--- RESULTADOS DA BUSCA ({len(funcionarios)}) ---")
     print(f"{'ID':<4} | {'Nome':<20} | {'Cargo':<15} | {'Salário':<12} | {'Contratação':<12}")
     print("-" * 68)
-
     for func in funcionarios:
         salario_formatado = f"R$ {func['salario']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
-        
         print(f"{func['id']:<4} | {func['nome']:<20} | {func['cargo']:<15} | {salario_formatado:<12} | {func['data_contratacao']:<12}")
-    
     print("-" * 68)
 
 def calcular_media_salarial():
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT AVG(salario) AS media_salarial, COUNT(id) AS total_funcionarios FROM funcionarios")
     resultado = cursor.fetchone()
     conn.close()
-    
     if resultado and resultado['total_funcionarios'] > 0:
         media = resultado['media_salarial']
         total = resultado['total_funcionarios']
         media_formatada = f"R$ {media:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
-
         print("\n--- ESTATÍSTICAS SALARIAIS ---")
         print(f"Total de funcionários: {total}")
         print(f"Média salarial da empresa: {media_formatada}")
@@ -504,29 +559,22 @@ def calcular_media_salarial():
 
 def remover_funcionario():
     print("\n--- REMOVER FUNCIONÁRIO ---")
-    
     try:
         id_remover = int(input("Digite o ID do funcionário a ser removido: "))
     except ValueError:
         print("Erro: O ID deve ser um número inteiro.")
         return
-
     conn = conectar_bd()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT nome, cargo FROM funcionarios WHERE id = ?", (id_remover,))
     funcionario = cursor.fetchone()
-    
     if not funcionario:
         print(f"Erro: Funcionário com ID {id_remover} não encontrado.")
         conn.close()
         return
-
     nome = funcionario['nome']
     cargo = funcionario['cargo']
-    
     confirmacao = input(f"CONFIRMAÇÃO: Deseja realmente remover {nome} ({cargo})? (S/N): ").strip().upper()
-    
     if confirmacao == 'S':
         try:
             cursor.execute("DELETE FROM funcionarios WHERE id = ?", (id_remover,))
@@ -538,6 +586,35 @@ def remover_funcionario():
             conn.close()
     else:
         print("Operação de remoção cancelada.")
+
+# --- FUNÇÕES DE MENU ---
+
+def menu_graficos():
+    while True:
+        print("\n" + "="*30)
+        print("   RELATÓRIOS E GRÁFICOS (ESTOQUE)")
+        print("="*30)
+        print("1 - Tendência de Estoque Diário")
+        print("2 - Comparação de Produtos")
+        print("3 - Proporção de Categorias")
+        print("4 - Preço vs. Quantidade")
+        print("0 - Voltar ao menu principal")
+
+        escolha = input("Escolha uma opção (0 a 4): ").strip()
+
+        if escolha == "0":
+            break
+        elif escolha == "1":
+            mostrar_grafico_tendencia_diaria() 
+        elif escolha == "2":
+            mostrar_grafico_comparacao_produtos() 
+        elif escolha == "3":
+            mostrar_grafico_proporcao_categorias() 
+        elif escolha == "4":
+            mostrar_grafico_preco_vs_quantidade() 
+        else:
+            print("Opção inválida.")
+
 
 def menu_funcionarios():
     while True:
@@ -572,7 +649,8 @@ def menu_funcionarios():
         elif escolha == "7": 
             remover_funcionarios_csv()
         else:
-            print("Opção inválida. Digite um número de 0 a 7.")
+            print("Opção inválida.")
+
 
 def menu_principal():
     while True:
@@ -583,7 +661,7 @@ def menu_principal():
         print("2 - Adicionar quantidade")
         print("3 - Baixar produto")
         print("4 - Visualizar estoque")
-        print("5 - Mostrar gráfico de valores")
+        print("5 - Relatórios e Gráficos (Menu)")
         print("6 - Importar produtos de CSV")
         print("7 - Remover produtos via CSV")
         print("8 - Gerenciamento de Funcionários")
@@ -603,7 +681,7 @@ def menu_principal():
         elif escolha == "4":
             visualizar_estoque()
         elif escolha == "5":
-            mostrar_grafico()
+            menu_graficos()
         elif escolha == "6":
             importar_produtos_csv()
         elif escolha == "7":
