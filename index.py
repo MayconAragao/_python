@@ -4,11 +4,8 @@ import csv
 from datetime import datetime
 import os 
 import numpy as np
-# O matplotlib.cm não é mais estritamente necessário, mas mantemos os imports básicos
 
 CSV_FOLDER = 'csv' 
-
-# --- FUNÇÕES BÁSICAS E CSV (Mantidas) ---
 
 def conectar_bd():
     conn = sqlite3.connect('meu_estoque.db')
@@ -156,8 +153,6 @@ def visualizar_estoque():
     print("-" * 62)
     print(f"{'VALOR TOTAL GERAL DO ESTOQUE':<49} R$ {total_geral:8.2f}")
     print("-" * 62)
-
-# --- FUNÇÕES GRÁFICAS ---
 
 def mostrar_grafico_tendencia_diaria():
     nome_produto = input("Digite o NOME do produto para ver a tendência diária: ").strip().lower()
@@ -329,9 +324,6 @@ def mostrar_grafico_preco_vs_quantidade():
     plt.show()
     plt.close('all')
 
-
-# --- FUNÇÕES CSV (Mantidas) ---
-
 def importar_produtos_csv(nome_arquivo='produtos.csv'):
     conn = conectar_bd()
     cursor = conn.cursor()
@@ -481,8 +473,6 @@ def remover_funcionarios_csv(nome_arquivo='funcionarios_remover.csv'):
     finally:
         conn.close()
 
-# --- FUNÇÕES DE PESSOAL ---
-
 def cadastrar_funcionario():
     nome = input("Nome do funcionário: ").strip().title()
     cargo = input("Cargo: ").strip().title()
@@ -586,8 +576,6 @@ def remover_funcionario():
             conn.close()
     else:
         print("Operação de remoção cancelada.")
-
-# --- FUNÇÕES DE MENU ---
 
 def menu_graficos():
     while True:
